@@ -1,0 +1,1 @@
+-keep class com.nx10.asparagus.** { *; }

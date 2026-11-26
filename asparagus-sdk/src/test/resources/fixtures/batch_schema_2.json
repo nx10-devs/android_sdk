@@ -1,0 +1,370 @@
+{
+  "header": {
+    "idOrg": "made-up-org-1",
+    "idDeployment": "made-up-deployment-1",
+    "idSource": "made-up-device-1",
+    "idSession": "made-up-session-1",
+    "sequence": "214",
+    "schemaVersion": 3,
+    "sdkVersion": { "major": 1, "minor": 2, "patch": 3 },
+    "platform": "PLATFORM_ANDROID",
+    "osVersion": "15",
+    "deviceModel": "Made-up Phone 3",
+    "settingsVersion": "made-up-settings-9",
+    "windowStartUs": "1794736860000000",
+    "windowLengthS": 10,
+    "closedUs": "1794736870000000",
+    "closeReason": "CLOSE_REASON_WINDOW_FULL",
+    "clocks": {
+      "sessionUs": "1794736860000000",
+      "unityUs": "2961250000",
+      "sensorUs": "9007199254740993",
+      "wallUtcMs": "1794737040412"
+    },
+    "serverAnchor": {
+      "serverUtcMs": "1794733920250",
+      "atReceipt": {
+        "sessionUs": "1794733920250000",
+        "unityUs": "23500000",
+        "wallUtcMs": "1794734100662"
+      },
+      "roundTripMs": 84
+    },
+    "screen": {
+      "widthPx": 1080,
+      "heightPx": 2400,
+      "densityDpi": 420,
+      "orientation": "ORIENTATION_PORTRAIT",
+      "origin": "COORDINATE_ORIGIN_BOTTOM_LEFT"
+    },
+    "hasGyroscope": true,
+    "batchesDropped": 2,
+    "utcOffsetMinutes": -300
+  },
+  "sensorBlocks": [
+    {
+      "sensor": "SENSOR_ACCELEROMETER",
+      "source": "CAPTURE_SOURCE_NATIVE_ANDROID",
+      "clock": "CLOCK_SENSOR",
+      "unit": "VALUE_UNIT_METRES_PER_SECOND_SQUARED",
+      "scale": 1e-8,
+      "requestedHz": 100,
+      "sampleCount": 1000,
+      "longestGapUs": 10012,
+      "firstTimeUs": "9007199254744993",
+      "timeStepsUs": [10012, 9988, 10004, 9996, 10000],
+      "x": [
+        1200000, 1072541824, -2147483648, 2147483647, -1033741823, -38500000
+      ],
+      "y": [-800000, 250800000, -560000000, 500000000, -220000000, 29100000],
+      "z": [
+        980665000, 519335000, -1080000000, 890000000, -300000000, -29300000
+      ],
+      "holds": [
+        {
+          "startTimeUs": "9007199254804993",
+          "endTimeUs": "9007199264734993",
+          "sampleCount": 994,
+          "x": 1300000,
+          "y": -700000,
+          "z": 980660000,
+          "stats": [
+            {
+              "sum": "1292200000",
+              "sumOfSquares": 1689800000000000,
+              "minimum": 1100000,
+              "maximum": 1500000
+            },
+            {
+              "sum": "-695800000",
+              "sumOfSquares": 497000000000000,
+              "minimum": -900000,
+              "maximum": -500000
+            },
+            {
+              "sum": "974776040000",
+              "sumOfSquares": 9.559238813264e20,
+              "minimum": 980460000,
+              "maximum": 980860000
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sensor": "SENSOR_GYROSCOPE",
+      "source": "CAPTURE_SOURCE_UNITY_EVENTS",
+      "fallbackReason": "FALLBACK_REASON_SENSOR_REFUSED",
+      "clock": "CLOCK_UNITY",
+      "unit": "VALUE_UNIT_RADIANS_PER_SECOND",
+      "scale": 0.000001,
+      "requestedHz": 100,
+      "sampleCount": 4,
+      "longestGapUs": 10300,
+      "firstTimeUs": "2961255000",
+      "timeStepsUs": [9800, 10300, 9900],
+      "x": [1200, -46200, 75000, -30500],
+      "y": [-800, 22800, -37000, 15400],
+      "z": [300, -9300, 15000, -6100]
+    },
+    {
+      "sensor": "SENSOR_GRAVITY",
+      "source": "CAPTURE_SOURCE_NATIVE_ANDROID",
+      "clock": "CLOCK_SENSOR",
+      "unit": "VALUE_UNIT_METRES_PER_SECOND_SQUARED",
+      "scale": 1e-8,
+      "requestedHz": 5,
+      "sampleCount": 50,
+      "longestGapUs": 200000,
+      "holds": [
+        {
+          "startTimeUs": "9007199254890993",
+          "endTimeUs": "9007199264690993",
+          "sampleCount": 50,
+          "x": -1250000,
+          "y": 830000,
+          "z": 980664000
+        }
+      ]
+    },
+    {
+      "sensor": "SENSOR_MAGNETOMETER",
+      "source": "CAPTURE_SOURCE_NATIVE_ANDROID",
+      "clock": "CLOCK_SENSOR",
+      "unit": "VALUE_UNIT_MICROTESLA",
+      "scale": 0.01,
+      "requestedHz": 10,
+      "sampleCount": 3,
+      "longestGapUs": 100000,
+      "firstTimeUs": "9007199255740993",
+      "timeStepsUs": [100000, 100000],
+      "x": [2000, 3, -2],
+      "y": [-500, -1, 1],
+      "z": [-4000, 2, 0]
+    }
+  ],
+  "touch": {
+    "mode": "TOUCH_MODE_EVENTS",
+    "requestedHz": 60,
+    "positionScale": 0.1,
+    "sizeScale": 0.01,
+    "pressureScale": 0.001,
+    "contacts": [
+      {
+        "fingerId": 1,
+        "continued": true,
+        "end": "TOUCH_END_LIFTED",
+        "firstTimeUs": "2961252000",
+        "timeStepsUs": [16600, 16700, 16700, 510000],
+        "x": [5400, 25, 45, 20, 0],
+        "y": [12000, -50, -110, -40, 0],
+        "sizeMajor": [1250, 10, -5, -5, -350],
+        "sizeMinor": [1100, -5, 5, 0, -300],
+        "pressure": [620, 20, 15, -5, -650],
+        "holds": [
+          {
+            "startTimeUs": "2961318700",
+            "endTimeUs": "2961803000",
+            "sampleCount": 30,
+            "x": 5490,
+            "y": 11800,
+            "sizeMajor": 1250,
+            "sizeMinor": 1100,
+            "pressure": 650,
+            "stats": [
+              {
+                "sum": "164790",
+                "sumOfSquares": 905191650,
+                "minimum": 5490,
+                "maximum": 5496
+              },
+              {
+                "sum": "353880",
+                "sumOfSquares": 4174368800,
+                "minimum": 11792,
+                "maximum": 11800
+              },
+              {
+                "sum": "37350",
+                "sumOfSquares": 46501250,
+                "minimum": 1240,
+                "maximum": 1250
+              },
+              {
+                "sum": "33020",
+                "sumOfSquares": 36344200,
+                "minimum": 1098,
+                "maximum": 1104
+              },
+              {
+                "sum": "19550",
+                "sumOfSquares": 12741250,
+                "minimum": 645,
+                "maximum": 660
+              }
+            ]
+          }
+        ],
+        "eventsSeen": 68,
+        "before": {
+          "downTimeUs": "2961000000",
+          "minX": 5300,
+          "maxX": 5400,
+          "minY": 12000,
+          "maxY": 12100
+        }
+      },
+      {
+        "fingerId": 2,
+        "end": "TOUCH_END_STILL_DOWN",
+        "firstTimeUs": "2971240000",
+        "x": [8000],
+        "y": [3000],
+        "sizeMajor": [1300],
+        "sizeMinor": [1150],
+        "pressure": [600],
+        "eventsSeen": 1
+      }
+    ]
+  },
+  "events": [
+    {
+      "timeUs": "2962250000",
+      "name": "game_level_succeeded",
+      "fields": {
+        "level": { "text": "3" },
+        "score": { "number": 1250.5 },
+        "perfect": { "flag": true },
+        "bonus": {}
+      },
+      "outcome": "succeeded",
+      "spanName": "level",
+      "spanMarker": "SPAN_MARKER_CLOSE",
+      "spanNumber": 7,
+      "order": 1
+    },
+    {
+      "timeUs": "2962251000",
+      "name": "game_level_started",
+      "fields": {
+        "level": { "text": "4" },
+        "attempt": { "number": 1 }
+      },
+      "spanName": "level",
+      "spanMarker": "SPAN_MARKER_OPEN",
+      "spanNumber": 8,
+      "order": 3
+    },
+    {
+      "timeUs": "2967250000",
+      "name": "button_clicked",
+      "fields": {
+        "button": { "text": "Café 小店 🛒" }
+      },
+      "order": 5
+    }
+  ],
+  "stateRecords": [
+    {
+      "timeUs": "2962250400",
+      "kind": "STATE_KIND_PATCH",
+      "values": {
+        "level": { "text": "4" }
+      },
+      "removedKeys": ["boss"],
+      "order": 2,
+      "version": 13
+    },
+    {
+      "timeUs": "2967250000",
+      "kind": "STATE_KIND_PUT",
+      "values": {
+        "level": { "text": "4" },
+        "screen": { "text": "shop" },
+        "lives": { "number": 3 }
+      },
+      "order": 4,
+      "version": 14
+    }
+  ],
+  "lifecycle": [
+    {
+      "timeUs": "2961250000",
+      "kind": "LIFECYCLE_KIND_CLOCK_STEPPED",
+      "clockStepS": "2"
+    },
+    {
+      "timeUs": "2968250000",
+      "kind": "LIFECYCLE_KIND_FOCUS_LOST"
+    },
+    {
+      "timeUs": "2968650000",
+      "kind": "LIFECYCLE_KIND_FOCUS_GAINED"
+    }
+  ],
+  "gaps": [
+    {
+      "signal": "GAP_SIGNAL_EVERYTHING",
+      "clock": "CLOCK_SESSION",
+      "startTimeUs": "1794734320000000",
+      "endTimeUs": "1794734340000000",
+      "cause": "GAP_CAUSE_BATCHES_DROPPED",
+      "batchesDropped": 2,
+      "firstDroppedSequence": "41"
+    },
+    {
+      "signal": "GAP_SIGNAL_GYROSCOPE",
+      "clock": "CLOCK_UNITY",
+      "startTimeUs": "2961285000",
+      "endTimeUs": "2971250000",
+      "cause": "GAP_CAUSE_SENSOR_SILENT"
+    },
+    {
+      "signal": "GAP_SIGNAL_MAGNETOMETER",
+      "clock": "CLOCK_SENSOR",
+      "startTimeUs": "9007199255940993",
+      "endTimeUs": "9007199258940993",
+      "cause": "GAP_CAUSE_SENSOR_SILENT"
+    }
+  ],
+  "screenChanges": [
+    {
+      "timeUs": "2967250000",
+      "widthPx": 2400,
+      "heightPx": 1080,
+      "densityDpi": 420,
+      "orientation": "ORIENTATION_LANDSCAPE_LEFT",
+      "origin": "COORDINATE_ORIGIN_BOTTOM_LEFT"
+    }
+  ],
+  "diagnostics": [
+    {
+      "timeUs": "2961535000",
+      "severity": "SEVERITY_WARNING",
+      "code": "sensor_silent",
+      "detail": "gyroscope: no sample for 250 ms",
+      "count": 1
+    }
+  ],
+  "carried": {
+    "state": {
+      "values": {
+        "level": { "text": "3" },
+        "screen": { "text": "game" },
+        "boss": { "flag": true },
+        "lives": { "number": 2 }
+      },
+      "version": 12
+    },
+    "openSpans": {
+      "spans": [
+        {
+          "name": "level",
+          "number": 7,
+          "openedTimeUs": "2920250000"
+        }
+      ]
+    },
+    "lastEventTimeUs": "2955125000"
+  }
+}
