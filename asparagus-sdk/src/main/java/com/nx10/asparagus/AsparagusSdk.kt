@@ -2,6 +2,7 @@ package com.nx10.asparagus
 
 import android.app.Application
 import android.content.Context
+import android.util.Log
 import android.view.MotionEvent
 import com.nx10.asparagus.capture.motion.AndroidMotionSensorCapture
 import com.nx10.asparagus.capture.touch.AndroidTouchEventBridge
@@ -15,6 +16,7 @@ import com.nx10.asparagus.device.SystemStateControllerFactory
 import com.nx10.asparagus.events.CoreEvents
 import com.nx10.asparagus.events.EventSink
 import com.nx10.asparagus.lifecycle.AndroidAppLifecycleObserver
+import com.nx10.asparagus.session.AndroidCollectionHistoryStore
 import com.nx10.asparagus.session.ComplianceResult
 import com.nx10.asparagus.session.SessionStartClient
 import com.nx10.asparagus.session.SessionStartResult
@@ -49,6 +51,8 @@ class AsparagusSdk(context: Context) : EventSink {
         systemStateControllerFactory = SystemStateControllerFactory { callback ->
             AndroidSystemStateMonitor(appContext, callback)
         },
+        historyStore = AndroidCollectionHistoryStore(appContext),
+        developerWarningLogger = { msg -> runCatching { Log.w(LOG_TAG, msg) } },
     )
 
     private val lifecycleObserver = AndroidAppLifecycleObserver(
@@ -66,6 +70,18 @@ class AsparagusSdk(context: Context) : EventSink {
         get() = engine.useProduction
         set(value) {
             runCatching { engine.useProduction = value }
+        }
+
+    var appVersionOverride: String?
+        get() = engine.appVersionOverride
+        set(value) {
+            runCatching { engine.appVersionOverride = value }
+        }
+
+    var buildNumberOverride: String?
+        get() = engine.buildNumberOverride
+        set(value) {
+            runCatching { engine.buildNumberOverride = value }
         }
 
     val statusFlow: StateFlow<SdkTelemetrySnapshot>
@@ -208,6 +224,7 @@ class AsparagusSdk(context: Context) : EventSink {
         const val STAGE_SESSION_START_ENDPOINT: String = SessionStartClient.STAGE_SESSION_START_ENDPOINT
         const val PRODUCTION_SESSION_START_ENDPOINT: String = SessionStartClient.PRODUCTION_SESSION_START_ENDPOINT
 
+        private const val LOG_TAG = "AsparagusSdk"
         private const val QUEUE_DIR_NAME = "asparagus_queue"
 
         @Volatile

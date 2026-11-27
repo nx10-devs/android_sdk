@@ -28,6 +28,7 @@ import com.nx10.asparagus.internal.codec.JsonCodec
 import com.nx10.asparagus.internal.net.HttpRequest
 import com.nx10.asparagus.internal.net.HttpResponse
 import com.nx10.asparagus.internal.net.HttpTransport
+import com.nx10.asparagus.session.InMemoryCollectionHistoryStore
 import com.nx10.asparagus.session.SessionStartClient
 import com.nx10.asparagus.session.SessionStartResult
 import com.nx10.asparagus.time.MonotonicTimeSource
@@ -563,5 +564,137 @@ class ContractFixtureAndEndToEndTest {
         // Stopping session cleanly stops the system state controller
         engine.stopSessionAwait()
         assertEquals(1, stopCount)
+    }
+
+    @Test
+    fun `endToEndCollectionHistoryProgressionCrashRecoverySettingsLabelAndBrightnessThrottle`() = runBlocking {
+        val time = FakeTimeSource()
+        val storedBody = BatchProtoCodec.encodeUploadResponse(UploadResponse(UploadStatus.UPLOAD_STATUS_STORED))
+        val sessionStartPayloads = mutableListOf<String>()
+        val uploadedDecodedBatches = mutableListOf<com.nx10.asparagus.contract.Batch>()
+        var sessionNum = 0
+
+        val transport = RecordingTransport { req ->
+            when (req.url) {
+                SessionStartClient.STAGE_SESSION_START_ENDPOINT -> {
+                    sessionNum++
+                    sessionStartPayloads.add(req.body.toString(Charsets.UTF_8))
+                    HttpResponse(
+                        statusCode = 200,
+                        body = """
+                            {
+                              "status": "success",
+                              "data": {
+                                "id_org": "made-up-org-1",
+                                "id_deployment": "made-up-dep-1",
+                                "id_source": "made-up-src-1",
+                                "id_session": "hist-ses-$sessionNum",
+                                "token": "synthetic-tok-$sessionNum",
+                                "token_expires_utc_ms": "${time.wallMs + 86_400_000L}",
+                                "server_utc_ms": "${time.wallMs}",
+                                "batch_endpoint": "https://intake.stage.example/asparagus/v1/batches",
+                                "settings": { "version": "s-v7", "compress": false },
+                                "settings_label": "Share Beta"
+                              }
+                            }
+                        """.trimIndent().toByteArray(Charsets.UTF_8),
+                    )
+                }
+                else -> {
+                    uploadedDecodedBatches.add(BatchProtoCodec.decode(req.body))
+                    HttpResponse(200, body = storedBody)
+                }
+            }
+        }
+
+        val sharedHistoryStore = InMemoryCollectionHistoryStore()
+        val queueDir = tempFolder.newFolder("e2e-v7-history")
+
+        fun newEngine(): AsparagusEngine = AsparagusEngine(
+            deviceInfo = FakeDeviceInfo(),
+            queueDir = queueDir,
+            transport = transport,
+            timeSource = time,
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+            ioDispatcher = Dispatchers.Unconfined,
+            enablePeriodicTicker = false,
+            sleeper = {},
+            historyStore = sharedHistoryStore,
+        )
+
+        // --- Session 1: Fresh install (history omitted), test brightness delta >= 0.05 & 1s cooldown ---
+        val engine1 = newEngine()
+        engine1.appVersionOverride = "3.2.1"
+        assertTrue(engine1.startSessionAwait("synthetic-api-key") is SessionStartResult.Started)
+        assertEquals("Share Beta", engine1.statusFlow.value.settingsLabel)
+
+        val req1Json = JsonCodec.parse(sessionStartPayloads[0]) as com.nx10.asparagus.internal.codec.JsonValue.JsonObject
+        assertEquals(com.nx10.asparagus.internal.codec.JsonValue.JsonString("3.2.1"), req1Json["app_version"])
+        assertEquals(null, req1Json["history"])
+
+        // 1) Initial brightness 0.50 emits immediately
+        engine1.updateSystemState(screenBrightness = 0.50, screenLocked = false)
+        assertEquals(0.50, engine1.statusFlow.value.screenBrightness!!, 1e-9)
+
+        // 2) Small change < 0.05 (0.53) is ignored even after > 1s
+        time.elapsedNanos += 2_000_000_000L
+        engine1.updateSystemState(screenBrightness = 0.53)
+        assertEquals(0.50, engine1.statusFlow.value.screenBrightness!!, 1e-9)
+
+        // 3) Large change >= 0.05 (0.60) after > 1s emits immediately
+        engine1.updateSystemState(screenBrightness = 0.60)
+        assertEquals(0.60, engine1.statusFlow.value.screenBrightness!!, 1e-9)
+
+        // 4) Large change within 1s cooldown (0.80 at +300ms) is held in pendingBrightness; lock change still emits immediately!
+        time.elapsedNanos += 300_000_000L
+        engine1.updateSystemState(screenBrightness = 0.80, screenLocked = true)
+        assertEquals(0.60, engine1.statusFlow.value.screenBrightness!!, 1e-9)
+        assertEquals(true, engine1.statusFlow.value.screenLocked)
+
+        // 5) Once 1s cooldown completes (+800ms -> total 1.1s), flushPendingBrightnessIfDue emits held 0.80
+        time.elapsedNanos += 800_000_000L
+        engine1.flushPendingBrightnessIfDue()
+        assertEquals(0.80, engine1.statusFlow.value.screenBrightness!!, 1e-9)
+
+        // 6) Large change within cooldown (0.90 at +200ms) then back within < 0.05 (0.82 at +400ms) cancels pending!
+        time.elapsedNanos += 200_000_000L
+        engine1.updateSystemState(screenBrightness = 0.90)
+        time.elapsedNanos += 200_000_000L
+        engine1.updateSystemState(screenBrightness = 0.82)
+        time.elapsedNanos += 2_000_000_000L
+        engine1.flushPendingBrightnessIfDue()
+        assertEquals(0.80, engine1.statusFlow.value.screenBrightness!!, 1e-9)
+
+        // Flush ~10s window and cleanly close Session 1
+        time.elapsedNanos += 6_500_000_000L
+        engine1.flushWindowNow(CloseReason.CLOSE_REASON_WINDOW_FULL, isFullWindowDuration = true)
+        engine1.stopSessionAwait()
+
+        // --- Session 2: Receives Session 1 history (sessions_before=1, collected_seconds_before >= 10 as string) ---
+        val engine2 = newEngine()
+        assertTrue(engine2.startSessionAwait("synthetic-api-key") is SessionStartResult.Started)
+        val req2Obj = JsonCodec.parse(sessionStartPayloads[1]) as com.nx10.asparagus.internal.codec.JsonValue.JsonObject
+        val hist2Obj = req2Obj["history"] as com.nx10.asparagus.internal.codec.JsonValue.JsonObject
+        assertEquals(com.nx10.asparagus.internal.codec.JsonValue.JsonNumber("1"), hist2Obj["sessions_before"])
+        val s1Seconds = (hist2Obj["collected_seconds_before"] as com.nx10.asparagus.internal.codec.JsonValue.JsonString).value.toLong()
+        assertTrue("Expected Session 1 collected seconds >= 10, got $s1Seconds", s1Seconds >= 10L)
+        assertEquals(1, engine2.statusFlow.value.historySessionsBefore)
+        assertEquals(s1Seconds, engine2.statusFlow.value.historyCollectedSecondsBefore)
+
+        // Collect 25s in Session 2 and simulate process crash (NO stopSessionAwait()!)
+        time.elapsedNanos += 25_000_000_000L
+        engine2.flushWindowNow(CloseReason.CLOSE_REASON_WINDOW_FULL, isFullWindowDuration = false)
+
+        // --- Session 3: Automatically finalizes unclosed Session 2 on start ---
+        val engine3 = newEngine()
+        assertTrue(engine3.startSessionAwait("synthetic-api-key") is SessionStartResult.Started)
+        val req3Decoded = JsonCodec.decodeSessionStartRequest(sessionStartPayloads[2])
+        val hist3 = req3Decoded.history!!
+        assertEquals(2, hist3.sessionsBefore)
+        assertTrue("Expected cumulative seconds >= ${s1Seconds + 25L}", hist3.collectedSecondsBefore >= s1Seconds + 25L)
+        assertTrue("Expected longest session >= 25s", hist3.longestSessionSecondsBefore >= 25)
+        assertEquals(2, engine3.statusFlow.value.historySessionsBefore)
+        assertEquals(hist3.collectedSecondsBefore, engine3.statusFlow.value.historyCollectedSecondsBefore)
+        assertEquals(hist3.longestSessionSecondsBefore, engine3.statusFlow.value.historyLongestSessionSecondsBefore)
     }
 }

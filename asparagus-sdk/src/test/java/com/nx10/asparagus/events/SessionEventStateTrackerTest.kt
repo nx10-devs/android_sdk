@@ -583,4 +583,35 @@ class SessionEventStateTrackerTest {
             win2.carried.state!!.values,
         )
     }
+
+    @Test
+    fun `declined game nx10_ state calls emit one developer warning line while clearAttributes stays silent`() {
+        val fake = FakeTimeSource()
+        val clock = SessionClock(timeSource = fake, appStartElapsedNanos = fake.elapsedNanos)
+        clock.anchor(serverUtcMs = fake.wallMs, roundTripMs = 10)
+        val warnings = mutableListOf<String>()
+        val tracker = SessionEventStateTracker(
+            sessionClock = clock,
+            developerWarningLogger = { warnings.add(it) },
+        )
+
+        tracker.updateSdkState(mapOf(SdkStateKeys.SCREEN_BRIGHTNESS to Value.Number(0.50)))
+        assertTrue(warnings.isEmpty())
+
+        tracker.setAttribute(SdkStateKeys.SCREEN_LOCKED, Value.Flag(true))
+        tracker.removeAttribute(SdkStateKeys.SCREEN_BRIGHTNESS)
+        tracker.setAttributes(mapOf("nx10_spoof" to Value.Text("x"), "level" to Value.Text("1")))
+        tracker.patchAttributes(
+            values = mapOf("nx10_a" to Value.Text("1")),
+            removedKeys = listOf("nx10_b"),
+        )
+        // clearAttributes() passes emptyMap() -> must NOT log a false-positive warning!
+        tracker.clearAttributes()
+
+        assertEquals(4, warnings.size)
+        assertTrue(warnings[0].contains(SdkStateKeys.SCREEN_LOCKED))
+        assertTrue(warnings[1].contains(SdkStateKeys.SCREEN_BRIGHTNESS))
+        assertTrue(warnings[2].contains("nx10_spoof"))
+        assertTrue(warnings[3].contains("nx10_a") && warnings[3].contains("nx10_b"))
+    }
 }

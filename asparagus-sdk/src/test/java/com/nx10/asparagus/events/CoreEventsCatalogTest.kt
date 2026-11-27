@@ -10,7 +10,7 @@ import org.junit.Test
 class CoreEventsCatalogTest {
 
     @Test
-    fun `loadDefault parses all 11 core events, 4 spans, 3 state keys, and both outcome texts`() {
+    fun `loadDefault parses all 11 core events, 10 spans, 3 state keys, 2 sdk state keys, and both outcome texts`() {
         val catalog = CoreEventsCatalog.loadDefault()
 
         assertEquals(CoreEventsCatalog.OUTCOME_CONVERTED, catalog.outcomeConverted)
@@ -55,14 +55,35 @@ class CoreEventsCatalogTest {
         assertNotNull(iap)
         assertTrue(iap!!.carriesOutcome)
 
-        // All 4 spans
-        assertEquals(listOf("level", "ad", "purchase_view", "round"), catalog.spans.map { it.name })
+        // All 10 spans (asparagus-contract-v7) with exact sent_as winning before sent_as_prefixes
+        assertEquals(
+            listOf(
+                CoreSpanNames.LEVEL,
+                CoreSpanNames.AD,
+                CoreSpanNames.PURCHASE_VIEW,
+                CoreSpanNames.ROUND,
+                CoreSpanNames.REWARDED_OFFER,
+                CoreSpanNames.BACKGROUNDED,
+                CoreSpanNames.SETTINGS,
+                CoreSpanNames.POPUP,
+                CoreSpanNames.TUTORIAL_OR_ONBOARDING,
+                CoreSpanNames.BANNER,
+            ),
+            catalog.spans.map { it.name },
+        )
         assertEquals("level", catalog.resolveOurSpan("level")?.name)
         assertEquals("ad", catalog.resolveOurSpan("ad")?.name)
         assertEquals("ad", catalog.resolveOurSpan("ad_rewarded")?.name)
-        assertEquals("ad", catalog.resolveOurSpan("ad_banner")?.name)
+        assertEquals("ad", catalog.resolveOurSpan("ad_interstitial")?.name)
+        assertEquals("banner", catalog.resolveOurSpan("banner")?.name)
+        assertEquals("banner", catalog.resolveOurSpan("ad_banner")?.name)
         assertEquals("purchase_view", catalog.resolveOurSpan("purchase_view")?.name)
         assertEquals("round", catalog.resolveOurSpan("round")?.name)
+        assertEquals("rewarded_offer", catalog.resolveOurSpan("rewarded_offer")?.name)
+        assertEquals("backgrounded", catalog.resolveOurSpan("backgrounded")?.name)
+        assertEquals("settings", catalog.resolveOurSpan("settings")?.name)
+        assertEquals("popup", catalog.resolveOurSpan("popup")?.name)
+        assertEquals("tutorial_or_onboarding", catalog.resolveOurSpan("tutorial_or_onboarding")?.name)
         assertNull(catalog.resolveOurSpan("boss_fight"))
 
         // All 3 standard state keys

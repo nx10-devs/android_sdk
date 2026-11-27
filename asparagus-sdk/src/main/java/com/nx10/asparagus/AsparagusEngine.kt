@@ -31,7 +31,9 @@ import com.nx10.asparagus.lifecycle.LifecycleAndTelemetryTracker
 import com.nx10.asparagus.queue.DiskBatchQueue
 import com.nx10.asparagus.queue.EnqueueResult
 import com.nx10.asparagus.session.ActiveSession
+import com.nx10.asparagus.session.CollectionHistoryStore
 import com.nx10.asparagus.session.ComplianceResult
+import com.nx10.asparagus.session.InMemoryCollectionHistoryStore
 import com.nx10.asparagus.session.SessionStartClient
 import com.nx10.asparagus.session.SessionStartResult
 import com.nx10.asparagus.time.AndroidTimeSource
@@ -60,6 +62,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
+import kotlin.math.abs
 
 /**
  * Platform motion controller hook (implemented by `AndroidMotionSensorCapture` on Android).
@@ -87,7 +90,7 @@ class AsparagusEngine(
     private val transport: HttpTransport = UrlConnectionHttpTransport(),
     private val timeSource: MonotonicTimeSource = AndroidTimeSource,
     private val sdkVersion: SdkVersion = DEFAULT_SDK_VERSION,
-    private val defaults: SdkSettings = SdkSettings.loadDefaults(),
+    private val defaults: SdkSettings = SdkSettings.builtInDefaults(),
     private val catalog: CoreEventsCatalog = CoreEventsCatalog.loadDefault(),
     private val retryBackoff: RetryBackoff = RetryBackoff(),
     private val motionControllerFactory: MotionControllerFactory = MotionControllerFactory { _, _ -> null },
@@ -96,6 +99,8 @@ class AsparagusEngine(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val enablePeriodicTicker: Boolean = true,
     private val sleeper: suspend (Long) -> Unit = { ms -> delay(ms) },
+    private val historyStore: CollectionHistoryStore = InMemoryCollectionHistoryStore(),
+    private val developerWarningLogger: (String) -> Unit = {},
 ) : EventSink {
 
     private data class ControlPlaneCredentials(
@@ -116,7 +121,12 @@ class AsparagusEngine(
         val assembler: BatchAssembler,
         val motionController: MotionController?,
         val systemStateController: SystemStateController?,
-    )
+    ) {
+        val brightnessLock = Any()
+        var lastSentBrightness: Double? = null
+        var lastSentBrightnessElapsedNanos: Long = 0L
+        var pendingBrightness: Double? = null
+    }
 
     private val stateLock = Any()
     private val flushMutex = Mutex()
@@ -135,6 +145,7 @@ class AsparagusEngine(
         appStartElapsedNanos = appStartElapsedNanos,
         ioDispatcher = ioDispatcher,
         delayFn = sleeper,
+        historyStore = historyStore,
     )
 
     @Volatile
@@ -152,6 +163,12 @@ class AsparagusEngine(
             _useProduction = value
             refreshSnapshot()
         }
+
+    @Volatile
+    var appVersionOverride: String? = null
+
+    @Volatile
+    var buildNumberOverride: String? = null
 
     @Volatile
     private var lastCredentials: ControlPlaneCredentials? = null
@@ -241,6 +258,8 @@ class AsparagusEngine(
                 sessionProperties = sessionProperties,
                 demo = demo,
                 maxAttempts = maxAttempts,
+                appVersionOverride = appVersionOverride,
+                buildNumberOverride = buildNumberOverride,
             )
 
             when (result) {
@@ -324,6 +343,8 @@ class AsparagusEngine(
                 val current = runtime ?: return
                 if (!current.session.collectionEnabled) return
 
+                flushPendingBrightnessIfDue(current)
+
                 val preparedBatches = withContext(ioDispatcher) {
                     val dropped = queue.consumePendingDroppedSummary()
                     val batches = current.assembler.closeWindow(
@@ -336,6 +357,12 @@ class AsparagusEngine(
                         queue.restoreDroppedSummary(dropped)
                     }
                     batches
+                }
+
+                if (preparedBatches.isNotEmpty()) {
+                    val first = preparedBatches.first()
+                    val windowDurationUs = (first.closedUs - first.windowStartUs).coerceAtLeast(0L)
+                    historyStore.onWindowCollected(windowDurationUs)
                 }
 
                 val settings = current.session.settings
@@ -513,6 +540,13 @@ class AsparagusEngine(
 
     /**
      * Records deduplicated SDK-managed system state (`nx10_screen_brightness` and `nx10_screen_locked`).
+     *
+     * Enforces W15-04 brightness reporting rules (`events/README.md` line 153):
+     * - First brightness reading in a session emits immediately.
+     * - Subsequent brightness readings emit only when `|delta| >= 0.05` AND at least `1s` has elapsed
+     *   since the previous brightness record; readings with `|delta| >= 0.05` inside the 1s cooldown
+     *   are held in `pendingBrightness` and flushed once the cooldown expires.
+     * - `nx10_screen_locked` always emits immediately on change.
      */
     fun updateSystemState(
         screenBrightness: Double? = null,
@@ -522,9 +556,43 @@ class AsparagusEngine(
             val current = runtime ?: return
             if (!current.session.collectionEnabled || !current.lifecycleTracker.isTelemetryEnabled) return
             val updates = LinkedHashMap<String, Value>(2)
-            if (screenBrightness != null && screenBrightness.isFinite()) {
-                updates[SdkStateKeys.SCREEN_BRIGHTNESS] = Value.Number(screenBrightness.coerceIn(0.0, 1.0))
+            val nowNanos = timeSource.elapsedRealtimeNanos()
+
+            synchronized(current.brightnessLock) {
+                if (screenBrightness != null && screenBrightness.isFinite()) {
+                    val clamped = screenBrightness.coerceIn(0.0, 1.0)
+                    val last = current.lastSentBrightness
+                    if (last == null) {
+                        updates[SdkStateKeys.SCREEN_BRIGHTNESS] = Value.Number(clamped)
+                        current.lastSentBrightness = clamped
+                        current.lastSentBrightnessElapsedNanos = nowNanos
+                        current.pendingBrightness = null
+                    } else {
+                        val delta = abs(clamped - last)
+                        if (delta < BRIGHTNESS_MIN_DELTA - BRIGHTNESS_DELTA_EPSILON) {
+                            current.pendingBrightness = null
+                        } else if ((nowNanos - current.lastSentBrightnessElapsedNanos) >= BRIGHTNESS_MIN_INTERVAL_NANOS) {
+                            updates[SdkStateKeys.SCREEN_BRIGHTNESS] = Value.Number(clamped)
+                            current.lastSentBrightness = clamped
+                            current.lastSentBrightnessElapsedNanos = nowNanos
+                            current.pendingBrightness = null
+                        } else {
+                            current.pendingBrightness = clamped
+                        }
+                    }
+                } else {
+                    val pending = current.pendingBrightness
+                    if (pending != null &&
+                        (nowNanos - current.lastSentBrightnessElapsedNanos) >= BRIGHTNESS_MIN_INTERVAL_NANOS
+                    ) {
+                        updates[SdkStateKeys.SCREEN_BRIGHTNESS] = Value.Number(pending)
+                        current.lastSentBrightness = pending
+                        current.lastSentBrightnessElapsedNanos = nowNanos
+                        current.pendingBrightness = null
+                    }
+                }
             }
+
             if (screenLocked != null) {
                 updates[SdkStateKeys.SCREEN_LOCKED] = Value.Flag(screenLocked)
             }
@@ -532,6 +600,34 @@ class AsparagusEngine(
                 refreshSnapshot()
             }
         }.onFailure { appendLog("updateSystemState fault contained: ${it.message}") }
+    }
+
+    /**
+     * Emits any held brightness change once its 1-second cooldown has elapsed.
+     */
+    fun flushPendingBrightnessIfDue() {
+        val current = runtime ?: return
+        flushPendingBrightnessIfDue(current)
+    }
+
+    private fun flushPendingBrightnessIfDue(target: SessionRuntime) {
+        runCatching {
+            if (!target.session.collectionEnabled || !target.lifecycleTracker.isTelemetryEnabled) return
+            val dueValue: Double = synchronized(target.brightnessLock) {
+                val pending = target.pendingBrightness ?: return
+                val nowNanos = timeSource.elapsedRealtimeNanos()
+                if ((nowNanos - target.lastSentBrightnessElapsedNanos) < BRIGHTNESS_MIN_INTERVAL_NANOS) {
+                    return
+                }
+                target.lastSentBrightness = pending
+                target.lastSentBrightnessElapsedNanos = nowNanos
+                target.pendingBrightness = null
+                pending
+            }
+            if (target.eventStateTracker.updateSdkState(mapOf(SdkStateKeys.SCREEN_BRIGHTNESS to Value.Number(dueValue)))) {
+                refreshSnapshot()
+            }
+        }
     }
 
     fun recordRawTouchSample(sample: RawTouchSample) {
@@ -671,6 +767,7 @@ class AsparagusEngine(
                     appendLog("Away ${decision.awaySeconds}s > new_session_after_s; rotating session")
                     stopTickerAndMotion(current)
                     runtime = null
+                    historyStore.onSessionClosed()
                     val creds = lastCredentials
                     if (creds != null) {
                         startSessionAwait(
@@ -781,6 +878,7 @@ class AsparagusEngine(
             ?: runCatching { deviceInfo.hasGyroscope() }.getOrDefault(false)
         val hasMag = current?.motionCapture?.hasMagnetometer
             ?: runCatching { deviceInfo.hasMagnetometer() }.getOrDefault(false)
+        val historySnapshot = historyStore.peekCurrentHistory()
 
         _statusFlow.value = SdkTelemetrySnapshot(
             sessionState = sessionState,
@@ -797,6 +895,10 @@ class AsparagusEngine(
             idSession = sess?.idSession.orEmpty(),
             batchEndpoint = sess?.batchEndpoint.orEmpty(),
             settingsVersion = sess?.settings?.version.orEmpty(),
+            settingsLabel = sess?.settingsLabel.orEmpty(),
+            historySessionsBefore = historySnapshot.sessionsBefore,
+            historyCollectedSecondsBefore = historySnapshot.collectedSecondsBefore,
+            historyLongestSessionSecondsBefore = historySnapshot.longestSessionSecondsBefore,
             batchLengthS = sess?.settings?.batchLengthS ?: 0,
             compress = sess?.settings?.compress ?: true,
             collectionEnabled = sess?.collectionEnabled ?: false,
@@ -841,6 +943,10 @@ class AsparagusEngine(
             sessionClock = session.clock,
             catalog = catalog,
             diagnostics = diagnostics,
+            developerWarningLogger = { msg ->
+                appendLog(msg)
+                developerWarningLogger(msg)
+            },
         )
         val lifecycleTracker = LifecycleAndTelemetryTracker(session.clock)
         val motionController = if (session.collectionEnabled) {
@@ -917,6 +1023,7 @@ class AsparagusEngine(
                 sleeper(TICK_INTERVAL_MS)
                 if (runtime !== targetRuntime) break
                 runCatching {
+                    flushPendingBrightnessIfDue(targetRuntime)
                     targetRuntime.motionCapture.evaluateHealth(
                         nowUnityUs = targetRuntime.session.clock.unityUs(),
                         isForeground = !targetRuntime.lifecycleTracker.isPaused,
@@ -944,6 +1051,7 @@ class AsparagusEngine(
             flushWindowNow(closeReason = closeReason, isFullWindowDuration = false)
         }
         runtime = null
+        historyStore.onSessionClosed()
     }
 
     private fun stopTickerAndMotion(target: SessionRuntime) {
@@ -998,6 +1106,8 @@ class AsparagusEngine(
                 sessionProperties = creds.sessionProperties,
                 demo = creds.demo,
                 maxAttempts = 1,
+                appVersionOverride = appVersionOverride,
+                buildNumberOverride = buildNumberOverride,
             )) {
                 is SessionStartResult.Started -> SessionRefreshOutcome.Refreshed(res.session)
                 is SessionStartResult.Refused -> {
@@ -1026,5 +1136,8 @@ class AsparagusEngine(
     companion object {
         private const val TICK_INTERVAL_MS: Long = 250L
         private const val MAX_LOG_ENTRIES: Int = 50
+        const val BRIGHTNESS_MIN_DELTA: Double = 0.05
+        private const val BRIGHTNESS_DELTA_EPSILON: Double = 1e-9
+        const val BRIGHTNESS_MIN_INTERVAL_NANOS: Long = 1_000_000_000L
     }
 }

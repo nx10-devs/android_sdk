@@ -29,6 +29,7 @@ class SessionEventStateTracker(
     private val catalog: CoreEventsCatalog = CoreEventsCatalog.loadDefault(),
     private val diagnostics: DiagnosticsAggregator? = null,
     private val maxStateKeys: Int = DEFAULT_MAX_STATE_KEYS,
+    private val developerWarningLogger: (String) -> Unit = {},
 ) : EventSink {
     init {
         require(maxStateKeys >= 1) { "maxStateKeys must be >= 1: $maxStateKeys" }
@@ -133,46 +134,59 @@ class SessionEventStateTracker(
      * Replaces the entire game state dictionary (`STATE_KIND_PUT`) while preserving any active
      * SDK-managed (`nx10_*`) keys in both `currentState` and the emitted `StateRecord`.
      */
-    fun setAttributes(attributes: Map<String, Value>) = synchronized(lock) {
-        val timeUs = nextTimestampUsLocked()
-        val acceptedGameKeys = LinkedHashMap<String, Value>(minOf(attributes.size, maxStateKeys))
-        var trimmed = 0
-        for ((k, v) in attributes) {
-            if (isSdkManagedKey(k)) continue
-            if (acceptedGameKeys.size < maxStateKeys) {
-                acceptedGameKeys[k] = v
-            } else {
-                trimmed++
+    fun setAttributes(attributes: Map<String, Value>) {
+        var declinedSdkKeys: List<String> = emptyList()
+        synchronized(lock) {
+            val timeUs = nextTimestampUsLocked()
+            val acceptedGameKeys = LinkedHashMap<String, Value>(minOf(attributes.size, maxStateKeys))
+            val declined = mutableListOf<String>()
+            var trimmed = 0
+            for ((k, v) in attributes) {
+                if (isSdkManagedKey(k)) {
+                    declined.add(k)
+                    continue
+                }
+                if (acceptedGameKeys.size < maxStateKeys) {
+                    acceptedGameKeys[k] = v
+                } else {
+                    trimmed++
+                }
             }
-        }
-        if (trimmed > 0) {
-            diagnostics?.record(
-                severity = Severity.SEVERITY_WARNING,
-                code = DIAGNOSTIC_STATE_KEY_LIMIT,
-                detail = "PUT trimmed $trimmed key(s) past limit $maxStateKeys",
-                timeUs = timeUs,
+            if (declined.isNotEmpty()) {
+                declinedSdkKeys = declined
+            }
+            if (trimmed > 0) {
+                diagnostics?.record(
+                    severity = Severity.SEVERITY_WARNING,
+                    code = DIAGNOSTIC_STATE_KEY_LIMIT,
+                    detail = "PUT trimmed $trimmed key(s) past limit $maxStateKeys",
+                    timeUs = timeUs,
+                )
+            }
+
+            val merged = LinkedHashMap<String, Value>(acceptedGameKeys.size + sdkManagedState.size)
+            merged.putAll(acceptedGameKeys)
+            merged.putAll(sdkManagedState)
+
+            currentState.clear()
+            currentState.putAll(merged)
+            stateVersion++
+            windowCallOrder++
+
+            windowStateRecords.add(
+                StateRecord(
+                    timeUs = timeUs,
+                    kind = StateKind.STATE_KIND_PUT,
+                    values = LinkedHashMap(merged),
+                    removedKeys = emptyList(),
+                    order = windowCallOrder,
+                    version = stateVersion,
+                ),
             )
         }
-
-        val merged = LinkedHashMap<String, Value>(acceptedGameKeys.size + sdkManagedState.size)
-        merged.putAll(acceptedGameKeys)
-        merged.putAll(sdkManagedState)
-
-        currentState.clear()
-        currentState.putAll(merged)
-        stateVersion++
-        windowCallOrder++
-
-        windowStateRecords.add(
-            StateRecord(
-                timeUs = timeUs,
-                kind = StateKind.STATE_KIND_PUT,
-                values = LinkedHashMap(merged),
-                removedKeys = emptyList(),
-                order = windowCallOrder,
-                version = stateVersion,
-            ),
-        )
+        if (declinedSdkKeys.isNotEmpty()) {
+            logDeclinedSdkKeys(declinedSdkKeys)
+        }
     }
 
     /**
@@ -203,55 +217,80 @@ class SessionEventStateTracker(
     fun patchAttributes(
         values: Map<String, Value> = emptyMap(),
         removedKeys: Collection<String> = emptyList(),
-    ) = synchronized(lock) {
-        val timeUs = nextTimestampUsLocked()
-        val ignoredSdkKey = values.keys.any { isSdkManagedKey(it) } || removedKeys.any { isSdkManagedKey(it) }
-        val effectiveRemovedKeys = removedKeys.distinct().filter { it !in values.keys && !isSdkManagedKey(it) }
-
-        for (k in effectiveRemovedKeys) {
-            currentState.remove(k)
-        }
-
-        val appliedValues = LinkedHashMap<String, Value>(values.size)
-        var rejected = 0
-        for ((k, v) in values) {
-            if (isSdkManagedKey(k)) continue
-            val gameKeyCount = currentState.size - sdkManagedState.size
-            if (currentState.containsKey(k) || gameKeyCount < maxStateKeys) {
-                currentState[k] = v
-                appliedValues[k] = v
-            } else {
-                rejected++
+    ) {
+        var declinedSdkKeys: List<String> = emptyList()
+        synchronized(lock) {
+            val timeUs = nextTimestampUsLocked()
+            val declined = LinkedHashSet<String>()
+            for (k in values.keys) {
+                if (isSdkManagedKey(k)) declined.add(k)
             }
-        }
+            for (k in removedKeys) {
+                if (isSdkManagedKey(k)) declined.add(k)
+            }
+            val ignoredSdkKey = declined.isNotEmpty()
+            if (ignoredSdkKey) {
+                declinedSdkKeys = declined.toList()
+            }
 
-        if (rejected > 0) {
-            diagnostics?.record(
-                severity = Severity.SEVERITY_WARNING,
-                code = DIAGNOSTIC_STATE_KEY_LIMIT,
-                detail = "PATCH ignored $rejected new key(s) past limit $maxStateKeys",
-                timeUs = timeUs,
+            val effectiveRemovedKeys = removedKeys.distinct().filter { it !in values.keys && !isSdkManagedKey(it) }
+
+            for (k in effectiveRemovedKeys) {
+                currentState.remove(k)
+            }
+
+            val appliedValues = LinkedHashMap<String, Value>(values.size)
+            var rejected = 0
+            for ((k, v) in values) {
+                if (isSdkManagedKey(k)) continue
+                val gameKeyCount = currentState.size - sdkManagedState.size
+                if (currentState.containsKey(k) || gameKeyCount < maxStateKeys) {
+                    currentState[k] = v
+                    appliedValues[k] = v
+                } else {
+                    rejected++
+                }
+            }
+
+            if (rejected > 0) {
+                diagnostics?.record(
+                    severity = Severity.SEVERITY_WARNING,
+                    code = DIAGNOSTIC_STATE_KEY_LIMIT,
+                    detail = "PATCH ignored $rejected new key(s) past limit $maxStateKeys",
+                    timeUs = timeUs,
+                )
+            }
+
+            // If every requested key was rejected due to maxStateKeys or ignored as SDK-managed, emit no no-op record.
+            if (appliedValues.isEmpty() && effectiveRemovedKeys.isEmpty() && (rejected > 0 || ignoredSdkKey)) {
+                return@synchronized
+            }
+
+            stateVersion++
+            windowCallOrder++
+
+            windowStateRecords.add(
+                StateRecord(
+                    timeUs = timeUs,
+                    kind = StateKind.STATE_KIND_PATCH,
+                    values = appliedValues,
+                    removedKeys = effectiveRemovedKeys,
+                    order = windowCallOrder,
+                    version = stateVersion,
+                ),
             )
         }
-
-        // If every requested key was rejected due to maxStateKeys or ignored as SDK-managed, emit no no-op record.
-        if (appliedValues.isEmpty() && effectiveRemovedKeys.isEmpty() && (rejected > 0 || ignoredSdkKey)) {
-            return@synchronized
+        if (declinedSdkKeys.isNotEmpty()) {
+            logDeclinedSdkKeys(declinedSdkKeys)
         }
+    }
 
-        stateVersion++
-        windowCallOrder++
-
-        windowStateRecords.add(
-            StateRecord(
-                timeUs = timeUs,
-                kind = StateKind.STATE_KIND_PATCH,
-                values = appliedValues,
-                removedKeys = effectiveRemovedKeys,
-                order = windowCallOrder,
-                version = stateVersion,
-            ),
-        )
+    private fun logDeclinedSdkKeys(keys: List<String>) {
+        runCatching {
+            developerWarningLogger(
+                "Asparagus SDK declined game state call for reserved nx10_ key(s): ${keys.joinToString(", ")}",
+            )
+        }
     }
 
     /**

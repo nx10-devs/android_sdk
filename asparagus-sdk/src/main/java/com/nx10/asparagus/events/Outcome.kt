@@ -28,3 +28,20 @@ object SdkStateKeys {
     const val SCREEN_BRIGHTNESS: String = CoreEventsCatalog.SDK_STATE_SCREEN_BRIGHTNESS
     const val SCREEN_LOCKED: String = CoreEventsCatalog.SDK_STATE_SCREEN_LOCKED
 }
+
+/**
+ * All 10 standard span names defined in `core_events.json` (`asparagus-contract-v7`).
+ */
+object CoreSpanNames {
+    const val LEVEL: String = "level"
+    const val AD: String = "ad"
+    const val PURCHASE_VIEW: String = "purchase_view"
+    const val ROUND: String = "round"
+    const val REWARDED_OFFER: String = "rewarded_offer"
+    const val BACKGROUNDED: String = "backgrounded"
+    const val SETTINGS: String = "settings"
+    const val POPUP: String = "popup"
+    const val TUTORIAL_OR_ONBOARDING: String = "tutorial_or_onboarding"
+    const val BANNER: String = "banner"
+    const val AD_BANNER: String = "ad_banner"
+}

@@ -74,14 +74,16 @@ data class CoreEventsCatalog(
     fun findSdkStateKey(key: String): SdkStateKeyDef? = sdkStateKeysByKey[key]
 
     /**
-     * Resolves a sent span name (e.g. `"ad_rewarded"`, `"level"`) to our canonical [CoreSpanDef]
-     * per Rule 16 of `events/README.md`, or `null` if it is a custom game span.
+     * Resolves a sent span name (e.g. `"ad_rewarded"`, `"ad_banner"`, `"level"`) to our canonical
+     * [CoreSpanDef] per Rule 16 of `events/README.md`, or `null` if it is a custom game span.
+     *
+     * Whole-name (`sent_as`) matches take precedence over prefix (`sent_as_prefixes`) matches so
+     * `"ad_banner"` resolves to `"banner"` rather than `"ad"`.
      */
     fun resolveOurSpan(sentSpanName: String): CoreSpanDef? {
         if (sentSpanName.isEmpty()) return null
-        return spans.firstOrNull { span ->
-            sentSpanName in span.sentAs || span.sentAsPrefixes.any { prefix -> sentSpanName.startsWith(prefix) }
-        }
+        return spans.firstOrNull { sentSpanName in it.sentAs }
+            ?: spans.firstOrNull { span -> span.sentAsPrefixes.any { prefix -> sentSpanName.startsWith(prefix) } }
     }
 
     companion object {
