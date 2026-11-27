@@ -494,6 +494,42 @@
       "meaning": "One gambling round, from its start to its end.",
       "sent_as": ["round"],
       "sent_as_prefixes": []
+    },
+    {
+      "name": "rewarded_offer",
+      "meaning": "One offer of a rewarded ad, from when it is shown to when it is hidden, whether the player takes it or not.",
+      "sent_as": ["rewarded_offer"],
+      "sent_as_prefixes": []
+    },
+    {
+      "name": "backgrounded",
+      "meaning": "One time away from the game, from when it goes to the background to when it comes back.",
+      "sent_as": ["backgrounded"],
+      "sent_as_prefixes": []
+    },
+    {
+      "name": "settings",
+      "meaning": "One visit to the game's settings, from when they open to when they close.",
+      "sent_as": ["settings"],
+      "sent_as_prefixes": []
+    },
+    {
+      "name": "popup",
+      "meaning": "One popup, from when it shows to when it closes.",
+      "sent_as": ["popup"],
+      "sent_as_prefixes": []
+    },
+    {
+      "name": "tutorial_or_onboarding",
+      "meaning": "One step of a tutorial or of a player's first steps in the game, from its start to its end.",
+      "sent_as": ["tutorial_or_onboarding"],
+      "sent_as_prefixes": []
+    },
+    {
+      "name": "banner",
+      "meaning": "One banner ad, from when it shows to when it is taken away: it can stay on the screen while the player plays, and while another ad shows.",
+      "sent_as": ["banner", "ad_banner"],
+      "sent_as_prefixes": []
     }
   ],
   "state_keys": [

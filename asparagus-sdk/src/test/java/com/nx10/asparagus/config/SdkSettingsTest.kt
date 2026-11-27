@@ -3,13 +3,20 @@ package com.nx10.asparagus.config
 import com.nx10.asparagus.contract.MotionSource
 import com.nx10.asparagus.contract.Settings
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class SdkSettingsTest {
 
     @Test
-    fun `loadDefaults loads all 24 settings from vendored defaults json`() {
-        val defaults = SdkSettings.loadDefaults()
+    fun `builtInDefaults provides all 26 starting settings and defaults json resource is removed`() {
+        assertNull(
+            "asparagus_contract/defaults.json must be removed per Decision 159",
+            SdkSettings::class.java.classLoader?.getResourceAsStream("asparagus_contract/defaults.json"),
+        )
+
+        val defaults = SdkSettings.builtInDefaults()
+        assertEquals(defaults, SdkSettings.loadDefaults())
 
         assertEquals("", defaults.version)
         assertEquals(100, defaults.accelerometerHz)
@@ -29,7 +36,7 @@ class SdkSettingsTest {
         assertEquals(5, defaults.gapThresholdPeriods)
         assertEquals(10, defaults.batchLengthS)
         assertEquals(true, defaults.compress)
-        assertEquals(50_000_000, defaults.queueMaxBytes)
+        assertEquals(52_428_800, defaults.queueMaxBytes)
         assertEquals(900, defaults.queueMaxAgeS)
         assertEquals(2000, defaults.retryFirstWaitMs)
         assertEquals(300_000, defaults.retryLongestWaitMs)

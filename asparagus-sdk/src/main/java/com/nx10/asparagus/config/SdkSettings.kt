@@ -5,8 +5,8 @@ import com.nx10.asparagus.contract.Settings
 import com.nx10.asparagus.internal.codec.JsonCodec
 
 /**
- * Resolved, non-null runtime SDK settings built from vendored `asparagus_contract/defaults.json`
- * and optionally merged with server-delivered [Settings] from session start.
+ * Resolved, non-null runtime SDK settings initialized from the SDK's built-in starting safety-net
+ * defaults (Decision 159) and merged with server-delivered [Settings] from session start.
  *
  * Merge semantics strictly follow `session.proto`:
  * - Explicit `0` or `false` values sent by the server are preserved.
@@ -96,8 +96,37 @@ data class SdkSettings(
     }
 
     companion object {
-        const val DEFAULTS_RESOURCE_PATH = "asparagus_contract/defaults.json"
         const val MAX_NEW_SESSION_AFTER_S = 86_400
+
+        private val BUILT_IN_DEFAULTS = SdkSettings(
+            version = "",
+            accelerometerHz = 100,
+            gyroscopeHz = 100,
+            gravityHz = 10,
+            touchHz = 60,
+            motionSource = MotionSource.MOTION_SOURCE_NATIVE,
+            nativeBufferS = 120,
+            nativeStartLimitMs = 1_000,
+            nativeStallLimitMs = 5_000,
+            accelerometerHoldTolerance = 0,
+            gyroscopeHoldTolerance = 0,
+            gravityHoldTolerance = 0,
+            touchHoldTolerance = 0,
+            holdRunLength = 10,
+            gapThresholdMs = 250,
+            gapThresholdPeriods = 5,
+            batchLengthS = 10,
+            compress = true,
+            queueMaxBytes = 52_428_800,
+            queueMaxAgeS = 900,
+            retryFirstWaitMs = 2_000,
+            retryLongestWaitMs = 300_000,
+            pauseTouchOnKeyboard = false,
+            tokenLifeS = 86_400,
+            newSessionAfterS = 1_800,
+            magnetometerHz = 10,
+            magnetometerHoldTolerance = 0,
+        )
 
         private fun resolveNonNegative(candidate: Int?, fallback: Int): Int =
             if (candidate != null && candidate >= 0) candidate else fallback
@@ -106,61 +135,19 @@ data class SdkSettings(
             if (candidate != null && candidate >= 1) candidate else fallback
 
         /**
-         * Loads the 24 built-in defaults from the bundled `asparagus_contract/defaults.json`.
+         * Returns the SDK's built-in starting safety-net settings (`asparagus-contract-v7`, Decision 159).
          */
-        fun loadDefaults(classLoader: ClassLoader? = SdkSettings::class.java.classLoader): SdkSettings {
-            val stream = classLoader?.getResourceAsStream(DEFAULTS_RESOURCE_PATH)
-                ?: error("Missing bundled contract resource: $DEFAULTS_RESOURCE_PATH")
-            val json = stream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-            return fromDefaultsJson(json)
-        }
+        fun builtInDefaults(): SdkSettings = BUILT_IN_DEFAULTS
 
-        fun fromDefaultsJson(json: String): SdkSettings {
-            val raw = JsonCodec.decodeSettings(json)
-            val motionSource = when (val ms = raw.motionSource) {
-                null, MotionSource.MOTION_SOURCE_UNSPECIFIED, is MotionSource.Unknown ->
-                    error("defaults.json missing valid motion_source")
-                else -> ms
-            }
-            val retryLongest = requireNotNull(raw.retryLongestWaitMs) { "defaults.json missing retry_longest_wait_ms" }
-            val retryFirst = minOf(
-                requireNotNull(raw.retryFirstWaitMs) { "defaults.json missing retry_first_wait_ms" },
-                retryLongest,
-            )
-            val newSessionAfter = minOf(
-                requireNotNull(raw.newSessionAfterS) { "defaults.json missing new_session_after_s" },
-                MAX_NEW_SESSION_AFTER_S,
-            )
+        /**
+         * Alias for [builtInDefaults] preserved for source compatibility.
+         */
+        fun loadDefaults(): SdkSettings = builtInDefaults()
 
-            return SdkSettings(
-                version = raw.version,
-                accelerometerHz = requireNotNull(raw.accelerometerHz) { "defaults.json missing accelerometer_hz" },
-                gyroscopeHz = requireNotNull(raw.gyroscopeHz) { "defaults.json missing gyroscope_hz" },
-                gravityHz = requireNotNull(raw.gravityHz) { "defaults.json missing gravity_hz" },
-                touchHz = requireNotNull(raw.touchHz) { "defaults.json missing touch_hz" },
-                motionSource = motionSource,
-                nativeBufferS = requireNotNull(raw.nativeBufferS) { "defaults.json missing native_buffer_s" },
-                nativeStartLimitMs = requireNotNull(raw.nativeStartLimitMs) { "defaults.json missing native_start_limit_ms" },
-                nativeStallLimitMs = requireNotNull(raw.nativeStallLimitMs) { "defaults.json missing native_stall_limit_ms" },
-                accelerometerHoldTolerance = requireNotNull(raw.accelerometerHoldTolerance) { "defaults.json missing accelerometer_hold_tolerance" },
-                gyroscopeHoldTolerance = requireNotNull(raw.gyroscopeHoldTolerance) { "defaults.json missing gyroscope_hold_tolerance" },
-                gravityHoldTolerance = requireNotNull(raw.gravityHoldTolerance) { "defaults.json missing gravity_hold_tolerance" },
-                touchHoldTolerance = requireNotNull(raw.touchHoldTolerance) { "defaults.json missing touch_hold_tolerance" },
-                holdRunLength = requireNotNull(raw.holdRunLength) { "defaults.json missing hold_run_length" },
-                gapThresholdMs = requireNotNull(raw.gapThresholdMs) { "defaults.json missing gap_threshold_ms" },
-                gapThresholdPeriods = requireNotNull(raw.gapThresholdPeriods) { "defaults.json missing gap_threshold_periods" },
-                batchLengthS = requireNotNull(raw.batchLengthS) { "defaults.json missing batch_length_s" },
-                compress = requireNotNull(raw.compress) { "defaults.json missing compress" },
-                queueMaxBytes = requireNotNull(raw.queueMaxBytes) { "defaults.json missing queue_max_bytes" },
-                queueMaxAgeS = requireNotNull(raw.queueMaxAgeS) { "defaults.json missing queue_max_age_s" },
-                retryFirstWaitMs = retryFirst,
-                retryLongestWaitMs = retryLongest,
-                pauseTouchOnKeyboard = requireNotNull(raw.pauseTouchOnKeyboard) { "defaults.json missing pause_touch_on_keyboard" },
-                tokenLifeS = requireNotNull(raw.tokenLifeS) { "defaults.json missing token_life_s" },
-                newSessionAfterS = newSessionAfter,
-                magnetometerHz = requireNotNull(raw.magnetometerHz) { "defaults.json missing magnetometer_hz" },
-                magnetometerHoldTolerance = requireNotNull(raw.magnetometerHoldTolerance) { "defaults.json missing magnetometer_hold_tolerance" },
-            )
-        }
+        /**
+         * Parses a JSON [Settings] object and merges it onto [builtInDefaults].
+         */
+        fun fromSettingsJson(json: String): SdkSettings =
+            builtInDefaults().merge(JsonCodec.decodeSettings(json))
     }
 }
