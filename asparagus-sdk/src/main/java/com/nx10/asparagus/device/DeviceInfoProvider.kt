@@ -22,7 +22,7 @@ import java.util.Locale
 import java.util.TimeZone
 import java.util.UUID
 
-val DEFAULT_SDK_VERSION: SdkVersion = SdkVersion(major = 0, minor = 1, patch = 0)
+val DEFAULT_SDK_VERSION: SdkVersion = SdkVersion(major = 0, minor = 2, patch = 0)
 
 data class AppVersionInfo(
     val appVersion: String,
@@ -140,11 +140,14 @@ class AndroidDeviceInfoProvider(context: Context) : DeviceInfoSource {
                 @Suppress("DEPRECATION")
                 pm.getPackageInfo(pkgName, 0)
             }
+            val rawVersionName = pkgInfo.versionName?.trim().orEmpty()
+            val buildNum = PackageInfoCompat.getLongVersionCode(pkgInfo).toString()
+            val resolvedAppVersion = rawVersionName.ifEmpty { buildNum.ifEmpty { FALLBACK_APP_VERSION } }
             AppVersionInfo(
-                appVersion = Utf8Bounds.truncateUtf8(pkgInfo.versionName.orEmpty()),
-                buildNumber = Utf8Bounds.truncateUtf8(PackageInfoCompat.getLongVersionCode(pkgInfo).toString()),
+                appVersion = Utf8Bounds.truncateUtf8(resolvedAppVersion),
+                buildNumber = Utf8Bounds.truncateUtf8(buildNum),
             )
-        }.getOrDefault(AppVersionInfo(appVersion = "", buildNumber = ""))
+        }.getOrDefault(AppVersionInfo(appVersion = FALLBACK_APP_VERSION, buildNumber = FALLBACK_BUILD_NUMBER))
     }
 
     private fun currentOrientation(): Orientation {
@@ -170,5 +173,7 @@ class AndroidDeviceInfoProvider(context: Context) : DeviceInfoSource {
         private const val PREFS_NAME = "com.nx10.asparagus.device"
         private const val KEY_FALLBACK_DEVICE_ID = "fallback_device_id"
         private const val DEVICE_TYPE_HANDHELD = "Handheld"
+        const val FALLBACK_APP_VERSION = "0.0.0"
+        const val FALLBACK_BUILD_NUMBER = "0"
     }
 }

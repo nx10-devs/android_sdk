@@ -27,7 +27,10 @@ import java.io.IOException
 
 class SessionStartClientTest {
 
-    private class FakeDeviceInfo : DeviceInfoSource {
+    private class FakeDeviceInfo(
+        private val appVersion: String = "1.2.3",
+        private val buildNumber: String = "42",
+    ) : DeviceInfoSource {
         override fun deviceIdentifier(): String = "synthetic-android-id-1"
         override fun deviceProperties(): DeviceProperties = DeviceProperties(
             maker = "MadeUpMaker",
@@ -52,7 +55,7 @@ class SessionStartClientTest {
         )
 
         override fun hasGyroscope(): Boolean = true
-        override fun appVersionInfo(): AppVersionInfo = AppVersionInfo("1.2.3", "42")
+        override fun appVersionInfo(): AppVersionInfo = AppVersionInfo(appVersion, buildNumber)
     }
 
     private class FakeTimeSource(
@@ -80,6 +83,7 @@ class SessionStartClientTest {
         batchEndpoint: String = "https://intake.stage.example/asparagus/v1/batches",
         accessEndpoint: String = "https://cp.stage.example/access",
         forgetEndpoint: String = "https://cp.stage.example/forget",
+        settingsLabel: String = "All devices",
     ): String = """
         {
           "status": "success",
@@ -100,7 +104,8 @@ class SessionStartClientTest {
               "gyroscope_hz": 0,
               "compress": false,
               "motion_source": "MOTION_SOURCE_UNITY"
-            }
+            },
+            "settings_label": "$settingsLabel"
           }
         }
     """.trimIndent()
@@ -162,6 +167,7 @@ class SessionStartClientTest {
         assertEquals(false, session.settings.compress)
         assertEquals(MotionSource.MOTION_SOURCE_UNITY, session.settings.motionSource)
         assertEquals(10, session.settings.batchLengthS) // default preserved
+        assertEquals("All devices", session.settingsLabel)
 
         // useProduction = true hits Production endpoint; empty batch_endpoint -> collectionEnabled = false
         val prodEmptyEndpointRes = client.startSession(
@@ -295,5 +301,30 @@ class SessionStartClientTest {
         val unavailable = client.requestPersonalDataAccess(session.copy(accessRequestEndpoint = ""))
         assertTrue(unavailable is ComplianceResult.Unavailable)
         assertEquals(2, transport.requests.size)
+    }
+
+    @Test
+    fun `buildRequest guarantees non-empty app_version fallback and honors appVersionOverride`() {
+        val emptyDeviceClient = SessionStartClient(
+            deviceInfo = FakeDeviceInfo(appVersion = "", buildNumber = ""),
+            timeSource = FakeTimeSource(),
+        )
+        val fallbackReq = emptyDeviceClient.buildRequest(apiKey = "k")
+        assertEquals("0.0.0", fallbackReq.appVersion)
+
+        val buildNumOnlyClient = SessionStartClient(
+            deviceInfo = FakeDeviceInfo(appVersion = "", buildNumber = "105"),
+            timeSource = FakeTimeSource(),
+        )
+        val buildFallbackReq = buildNumOnlyClient.buildRequest(apiKey = "k")
+        assertEquals("105", buildFallbackReq.appVersion)
+
+        val overrideReq = emptyDeviceClient.buildRequest(
+            apiKey = "k",
+            appVersionOverride = " 2.4.1 ",
+            buildNumberOverride = " 99 ",
+        )
+        assertEquals("2.4.1", overrideReq.appVersion)
+        assertEquals("99", overrideReq.buildNumber)
     }
 }

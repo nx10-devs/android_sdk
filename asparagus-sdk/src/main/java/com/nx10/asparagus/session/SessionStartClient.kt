@@ -1,10 +1,12 @@
 package com.nx10.asparagus.session
 
 import com.nx10.asparagus.config.SdkSettings
+import com.nx10.asparagus.contract.CollectionHistory
 import com.nx10.asparagus.contract.Platform
 import com.nx10.asparagus.contract.SdkVersion
 import com.nx10.asparagus.contract.SessionStartRequest
 import com.nx10.asparagus.contract.Value
+import com.nx10.asparagus.device.AndroidDeviceInfoProvider
 import com.nx10.asparagus.device.DEFAULT_SDK_VERSION
 import com.nx10.asparagus.device.DeviceInfoSource
 import com.nx10.asparagus.internal.codec.JsonCodec
@@ -46,12 +48,13 @@ class SessionStartClient(
     private val deviceInfo: DeviceInfoSource,
     private val transport: HttpTransport = UrlConnectionHttpTransport(),
     private val timeSource: MonotonicTimeSource = AndroidTimeSource,
-    private val defaults: SdkSettings = SdkSettings.loadDefaults(),
+    private val defaults: SdkSettings = SdkSettings.builtInDefaults(),
     private val retryBackoff: RetryBackoff = RetryBackoff(),
     private val sdkVersion: SdkVersion = DEFAULT_SDK_VERSION,
     private val appStartElapsedNanos: Long = timeSource.elapsedRealtimeNanos(),
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val delayFn: suspend (Long) -> Unit = { ms -> delay(ms) },
+    private val historyStore: CollectionHistoryStore = InMemoryCollectionHistoryStore(),
 ) {
     private val refusalLock = Any()
 
@@ -63,23 +66,38 @@ class SessionStartClient(
 
     /**
      * Builds the `SessionStartRequest` using [DeviceInfoSource] without exposing personal device names.
+     * Guarantees a non-empty `app_version` (Session 66 readiness).
      */
     fun buildRequest(
         apiKey: String,
         sessionProperties: Map<String, Value> = emptyMap(),
         demo: Boolean = false,
+        history: CollectionHistory? = null,
+        appVersionOverride: String? = null,
+        buildNumberOverride: String? = null,
     ): SessionStartRequest {
         val appVersionInfo = deviceInfo.appVersionInfo()
+        val resolvedAppVersion = Utf8Bounds.truncateUtf8(
+            appVersionOverride?.trim()?.takeIf { it.isNotEmpty() }
+                ?: appVersionInfo.appVersion.trim().ifEmpty {
+                    appVersionInfo.buildNumber.trim().ifEmpty { AndroidDeviceInfoProvider.FALLBACK_APP_VERSION }
+                },
+        )
+        val resolvedBuildNumber = Utf8Bounds.truncateUtf8(
+            buildNumberOverride?.trim()?.takeIf { it.isNotEmpty() }
+                ?: appVersionInfo.buildNumber.trim(),
+        )
         return SessionStartRequest(
             apiKey = apiKey,
             deviceIdentifier = deviceInfo.deviceIdentifier(),
             sdkVersion = sdkVersion,
             platform = Platform.PLATFORM_ANDROID,
             device = deviceInfo.deviceProperties(),
-            appVersion = appVersionInfo.appVersion,
-            buildNumber = appVersionInfo.buildNumber,
+            appVersion = resolvedAppVersion,
+            buildNumber = resolvedBuildNumber,
             sessionProperties = sessionProperties,
             demo = demo,
+            history = history,
         )
     }
 
@@ -97,14 +115,20 @@ class SessionStartClient(
         sessionProperties: Map<String, Value> = emptyMap(),
         demo: Boolean = false,
         maxAttempts: Int = Int.MAX_VALUE,
+        appVersionOverride: String? = null,
+        buildNumberOverride: String? = null,
     ): SessionStartResult {
         latchedRefusal?.let { return it }
 
         val url = sessionStartEndpoint(useProduction)
+        val history = historyStore.readBeforeSessionStart()
         val requestModel = buildRequest(
             apiKey = apiKey,
             sessionProperties = sessionProperties,
             demo = demo,
+            history = history,
+            appVersionOverride = appVersionOverride,
+            buildNumberOverride = buildNumberOverride,
         )
         val payloadBytes = JsonCodec.encodeSessionStartRequest(requestModel).toByteArray(Charsets.UTF_8)
         val httpRequest = HttpRequest(
@@ -203,6 +227,8 @@ class SessionStartClient(
                         nativeSensorRunning = false,
                     )
 
+                    historyStore.onSessionStarted()
+
                     return SessionStartResult.Started(
                         ActiveSession(
                             idOrg = idOrg,
@@ -219,6 +245,7 @@ class SessionStartClient(
                             serverAnchor = anchor,
                             collectionEnabled = collectionEnabled,
                             clock = clock,
+                            settingsLabel = Utf8Bounds.truncateUtf8(data.settingsLabel),
                         ),
                     )
                 }

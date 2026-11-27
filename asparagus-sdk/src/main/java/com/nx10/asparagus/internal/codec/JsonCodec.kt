@@ -6,6 +6,7 @@ import com.nx10.asparagus.contract.Carried
 import com.nx10.asparagus.contract.Clock
 import com.nx10.asparagus.contract.ClockReading
 import com.nx10.asparagus.contract.CloseReason
+import com.nx10.asparagus.contract.CollectionHistory
 import com.nx10.asparagus.contract.ContactBefore
 import com.nx10.asparagus.contract.CoordinateOrigin
 import com.nx10.asparagus.contract.DeviceProperties
@@ -133,7 +134,28 @@ object JsonCodec {
             fields["session_properties"] = JsonValue.JsonObject(props)
         }
         if (request.demo) fields["demo"] = JsonValue.JsonBool(true)
+        val history = request.history
+        if (history != null && history.hasAnyHistory) {
+            fields["history"] = encodeCollectionHistory(history)
+        }
         return stringify(JsonValue.JsonObject(fields))
+    }
+
+    fun decodeSessionStartRequest(json: String): SessionStartRequest {
+        val obj = parse(json).asObject("SessionStartRequest")
+        return SessionStartRequest(
+            apiKey = obj.stringOrDefault("api_key", "apiKey"),
+            deviceIdentifier = obj.stringOrDefault("device_identifier", "deviceIdentifier"),
+            sdkVersion = obj.objectOrNull("sdk_version", "sdkVersion")?.let { decodeSdkVersionObj(it) },
+            platform = obj.enumOrNull("platform", Platform::fromProtoName, Platform::fromProtoNumber)
+                ?: Platform.PLATFORM_UNSPECIFIED,
+            device = obj.objectOrNull("device")?.let { decodeDevicePropertiesObj(it) },
+            appVersion = obj.stringOrDefault("app_version", "appVersion"),
+            buildNumber = obj.stringOrDefault("build_number", "buildNumber"),
+            sessionProperties = decodeValueMapObj(obj.objectOrNull("session_properties", "sessionProperties")),
+            demo = obj.boolOrDefault("demo"),
+            history = obj.objectOrNull("history")?.let { decodeCollectionHistoryObj(it) },
+        )
     }
 
     fun encodeSessionStartResponse(response: SessionStartResponse): String {
@@ -151,6 +173,9 @@ object JsonCodec {
         response.settings?.let { fields["settings"] = encodeSettings(it) }
         if (response.models.isNotEmpty()) {
             fields["models"] = JsonValue.JsonArray(response.models.map { encodeModelReference(it) })
+        }
+        if (response.settingsLabel.isNotEmpty()) {
+            fields["settings_label"] = JsonValue.JsonString(response.settingsLabel)
         }
         return stringify(JsonValue.JsonObject(fields))
     }
@@ -177,6 +202,39 @@ object JsonCodec {
         val obj = parse(json).asObject("Settings")
         return decodeSettingsObj(obj)
     }
+
+    private fun encodeCollectionHistory(h: CollectionHistory): JsonValue.JsonObject {
+        val fields = linkedMapOf<String, JsonValue>()
+        if (h.sessionsBefore > 0) {
+            fields["sessions_before"] = JsonValue.JsonNumber(h.sessionsBefore.toUInt().toString())
+        }
+        if (h.collectedSecondsBefore > 0L) {
+            fields["collected_seconds_before"] = JsonValue.JsonString(h.collectedSecondsBefore.toULong().toString())
+        }
+        if (h.longestSessionSecondsBefore > 0) {
+            fields["longest_session_seconds_before"] = JsonValue.JsonNumber(h.longestSessionSecondsBefore.toUInt().toString())
+        }
+        return JsonValue.JsonObject(fields)
+    }
+
+    private fun decodeCollectionHistoryObj(obj: JsonValue.JsonObject): CollectionHistory = CollectionHistory(
+        sessionsBefore = obj.intOrDefault("sessions_before", "sessionsBefore"),
+        collectedSecondsBefore = obj.longOrDefault("collected_seconds_before", "collectedSecondsBefore"),
+        longestSessionSecondsBefore = obj.intOrDefault("longest_session_seconds_before", "longestSessionSecondsBefore"),
+    )
+
+    private fun decodeDevicePropertiesObj(obj: JsonValue.JsonObject): DeviceProperties = DeviceProperties(
+        maker = obj.stringOrDefault("maker"),
+        model = obj.stringOrDefault("model"),
+        osVersion = obj.stringOrDefault("os_version", "osVersion"),
+        deviceType = obj.stringOrDefault("device_type", "deviceType"),
+        screenWidthPx = obj.intOrDefault("screen_width_px", "screenWidthPx"),
+        screenHeightPx = obj.intOrDefault("screen_height_px", "screenHeightPx"),
+        screenDensityDpi = obj.floatOrDefault("screen_density_dpi", "screenDensityDpi"),
+        hasGyroscope = obj.boolOrDefault("has_gyroscope", "hasGyroscope"),
+        timezone = obj.stringOrDefault("timezone"),
+        locale = obj.stringOrDefault("locale"),
+    )
 
     private fun encodeDeviceProperties(d: DeviceProperties): JsonValue.JsonObject {
         val fields = linkedMapOf<String, JsonValue>()
@@ -262,6 +320,7 @@ object JsonCodec {
             forgetRequestEndpoint = obj.stringOrDefault("forget_request_endpoint", "forgetRequestEndpoint"),
             settings = obj.objectOrNull("settings")?.let { decodeSettingsObj(it) },
             models = models,
+            settingsLabel = obj.stringOrDefault("settings_label", "settingsLabel"),
         )
     }
 

@@ -1,10 +1,12 @@
 package com.nx10.asparagus.internal.codec
 
+import com.nx10.asparagus.contract.CollectionHistory
 import com.nx10.asparagus.contract.DeviceProperties
 import com.nx10.asparagus.contract.MotionSource
 import com.nx10.asparagus.contract.Platform
 import com.nx10.asparagus.contract.SdkVersion
 import com.nx10.asparagus.contract.SessionStartRequest
+import com.nx10.asparagus.contract.SessionStartResponse
 import com.nx10.asparagus.contract.Value
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -114,7 +116,8 @@ class JsonCodecTest {
                     "download_url": "https://cdn.example/m.onnx",
                     "arguments": ["level", "score"]
                   }
-                ]
+                ],
+                "settings_label": "All devices"
               }
             }
         """.trimIndent()
@@ -149,6 +152,49 @@ class JsonCodecTest {
         assertEquals(1, data.models.size)
         assertEquals("ad_propensity", data.models[0].purpose)
         assertEquals(listOf("level", "score"), data.models[0].arguments)
+        assertEquals("All devices", data.settingsLabel)
+    }
+
+    @Test
+    fun `encodeSessionStartRequest encodes CollectionHistory uint64 as string and omits all-zero history`() {
+        val zeroHistoryReq = SessionStartRequest(
+            apiKey = "test-api-key",
+            appVersion = "1.0.0",
+            history = CollectionHistory(0, 0L, 0),
+        )
+        val zeroParsed = JsonCodec.parse(JsonCodec.encodeSessionStartRequest(zeroHistoryReq)) as JsonValue.JsonObject
+        assertNull("All-zero CollectionHistory must be omitted", zeroParsed["history"])
+
+        val populatedReq = SessionStartRequest(
+            apiKey = "test-api-key",
+            appVersion = "1.0.0",
+            history = CollectionHistory(
+                sessionsBefore = 4,
+                collectedSecondsBefore = 3600L,
+                longestSessionSecondsBefore = 1200,
+            ),
+        )
+        val encodedJson = JsonCodec.encodeSessionStartRequest(populatedReq)
+        val parsed = JsonCodec.parse(encodedJson) as JsonValue.JsonObject
+        val historyObj = parsed["history"] as JsonValue.JsonObject
+        assertEquals(JsonValue.JsonNumber("4"), historyObj["sessions_before"])
+        assertEquals(JsonValue.JsonString("3600"), historyObj["collected_seconds_before"])
+        assertEquals(JsonValue.JsonNumber("1200"), historyObj["longest_session_seconds_before"])
+
+        val decoded = JsonCodec.decodeSessionStartRequest(encodedJson)
+        assertEquals(populatedReq.history, decoded.history)
+
+        // Response settings_label round-trip (snake_case & camelCase)
+        val respJson = JsonCodec.encodeSessionStartResponse(
+            SessionStartResponse(idSession = "s1", settingsLabel = "Canary 10%"),
+        )
+        val respParsed = JsonCodec.parse(respJson) as JsonValue.JsonObject
+        assertEquals(JsonValue.JsonString("Canary 10%"), respParsed["settings_label"])
+        assertEquals("Canary 10%", JsonCodec.decodeSessionStartResponse(respJson).settingsLabel)
+        assertEquals(
+            "Beta Share",
+            JsonCodec.decodeSessionStartResponse("""{"idSession":"s2","settingsLabel":"Beta Share"}""").settingsLabel,
+        )
     }
 
     @Test

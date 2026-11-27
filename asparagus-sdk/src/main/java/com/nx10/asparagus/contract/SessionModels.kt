@@ -1,6 +1,18 @@
 package com.nx10.asparagus.contract
 
 /**
+ * What one install of one game has collected before this session (`asparagus_contract.v1.CollectionHistory`).
+ */
+data class CollectionHistory(
+    val sessionsBefore: Int = 0,
+    val collectedSecondsBefore: Long = 0L,
+    val longestSessionSecondsBefore: Int = 0,
+) {
+    val hasAnyHistory: Boolean
+        get() = sessionsBefore > 0 || collectedSecondsBefore > 0L || longestSessionSecondsBefore > 0
+}
+
+/**
  * Request body for `POST /routes/asparagus/sessions/start` (`asparagus_contract.v1.SessionStartRequest`).
  */
 data class SessionStartRequest(
@@ -13,6 +25,7 @@ data class SessionStartRequest(
     val buildNumber: String = "",
     val sessionProperties: Map<String, Value> = emptyMap(),
     val demo: Boolean = false,
+    val history: CollectionHistory? = null,
 )
 
 /**
@@ -48,6 +61,7 @@ data class SessionStartResponse(
     val forgetRequestEndpoint: String = "",
     val settings: Settings? = null,
     val models: List<ModelReference> = emptyList(),
+    val settingsLabel: String = "",
 )
 
 sealed class MotionSource(val protoNumber: Int, val protoName: String) {

@@ -314,4 +314,36 @@ class BatchUploaderTest {
         val diagCodes = diagnostics.flushWindow().map { it.code }.toSet()
         assertEquals(setOf("upload_refused_400", "upload_refused_403", "upload_refused_413"), diagCodes)
     }
+
+    @Test
+    fun `disabled collection session with empty batch_endpoint does not prune queued batches from prior sessions`() = runBlocking {
+        val time = FakeTimeSource()
+        val queue = DiskBatchQueue(tempFolder.newFolder("q-disabled"), time)
+        queue.enqueue(makePreparedBatch("ses-prev", 1L, compressed = false), 50_000_000, 900)
+        assertEquals(1, queue.size())
+
+        // Even with expired age or zero queue limits on a non-collecting session, queued batches remain intact!
+        time.elapsedNanos += 2_000_000_000_000L
+        val disabledSession = makeSession(
+            time = time,
+            idSession = "ses-off",
+            token = "tok-off",
+            batchEndpoint = "",
+        ).copy(
+            settings = SdkSettings.builtInDefaults().copy(queueMaxBytes = 0, queueMaxAgeS = 0),
+        )
+
+        val uploader = BatchUploader(
+            queue = queue,
+            transport = ScriptedTransport(ArrayDeque()),
+            ioDispatcher = Dispatchers.Unconfined,
+            sleeper = { throw AssertionError("Must not sleep when collection disabled") },
+        )
+
+        val summary = uploader.drainQueue(disabledSession, SessionRefresher { SessionRefreshOutcome.PermanentlyRefused })
+        assertEquals(DrainStopReason.COLLECTION_DISABLED, summary.stoppedReason)
+        assertEquals(0, summary.uploadedCount)
+        assertEquals(1, summary.remainingInQueue)
+        assertEquals(1, queue.size())
+    }
 }

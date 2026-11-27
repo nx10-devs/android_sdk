@@ -105,7 +105,6 @@ class BatchUploader(
         var authAttempt = 0
 
         if (!session.collectionEnabled || session.batchEndpoint.isBlank()) {
-            queue.prune(session.settings.queueMaxBytes, session.settings.queueMaxAgeS)
             return DrainSummary(
                 activeSession = session,
                 uploadedCount = 0,
@@ -151,7 +150,6 @@ class BatchUploader(
                         session = outcome.session
                         listener?.onUploadEvent(UploadEvent.TokenRefreshed(prevId, session.idSession))
                         if (!session.collectionEnabled || session.batchEndpoint.isBlank()) {
-                            queue.prune(session.settings.queueMaxBytes, session.settings.queueMaxAgeS)
                             return DrainSummary(
                                 activeSession = session,
                                 uploadedCount = uploadedCount,
@@ -300,7 +298,6 @@ class BatchUploader(
                             session = outcome.session
                             listener?.onUploadEvent(UploadEvent.TokenRefreshed(prevId, session.idSession))
                             if (!session.collectionEnabled || session.batchEndpoint.isBlank()) {
-                                queue.prune(session.settings.queueMaxBytes, session.settings.queueMaxAgeS)
                                 return DrainSummary(
                                     activeSession = session,
                                     uploadedCount = uploadedCount,

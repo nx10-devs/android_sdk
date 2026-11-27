@@ -23,6 +23,7 @@ data class ActiveSession(
     val serverAnchor: ServerAnchor,
     val collectionEnabled: Boolean,
     val clock: SessionClock,
+    val settingsLabel: String = "",
 ) {
     fun isTokenExpired(): Boolean = clock.isTokenExpired(tokenExpiresUtcMs)
 }
